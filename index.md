@@ -76,6 +76,52 @@ In theory this is an NP-hard problem but due to the low numbers of positions for
 
 In order to turn each clique into a peak we classify each position as an ambiguous or unambiguous detection. Ambiguous positions are ones that connect to all members of more than one clique. For example, midpoint detections can often be associated with the two peaks that were combined into a single detection in bands with a wider PSF and/or wavelet scale. For very nearby sources the majority of the detections can actually be midpoint detections so it's important to remove ambiguous detections first. Unless all of the members of a clique are ambiguous (which is rare but does happen, in which case all candidates are used), the median separable `x` and `y` of the unambiguous candidates is used to set the approximate center of the peak, and the candidate detection nearest to that location is chosen as the location for the peak.
 
+
+#### Results
+
+To illustrate how this works we've selected a few example sources that were detected as a single peak in the legacy catalog but appear as multiple peaks using the new detection algorithm. In each plot, the panels are as follows:
+1. Shows the candidates, with higher frequency scale candidates as circles and lower frequency detections as squares.
+2. Shows the positions.
+3. Shows the cliques. Each clique (peak) is a different color, and points with a ring around them indicate ambiguous positions that are within the search radius of all of the members of multiple cliques.
+4. Shows the detected peaks, marking the sole legacy peak with an x and the new peaks created from cliques with circles.
+
+```{figure} images/example_p25_c4867.png
+:name: fig-example-p25-c4867
+:alt: Merging steps for patch 25, component 4867
+:width: 100%
+```
+
+```{figure} images/example_p35_c5556.png
+:name: fig-example-p35-c5556
+:alt: Merging steps for patch 35, component 5556
+:width: 100%
+```
+
+```{figure} images/example_p35_c10010.png
+:name: fig-example-p35-c10010
+:alt: Merging steps for patch 35, component 10010
+:width: 100%
+```
+
+```{figure} images/example_p43_c14420.png
+:name: fig-example-p43-c14420
+:alt: Merging steps for patch 43, component 14420
+:width: 100%
+```
+
+```{figure} images/example_p80_c1941.png
+:name: fig-example-p80-c1941
+:alt: Merging steps for patch 80, component 1941
+:width: 100%
+```
+
+```{figure} images/example_p95_c5964.png
+:name: fig-example-p95-c5964
+:alt: Merging steps for patch 95, component 5964
+:width: 100%
+```
+
+
 ### Associating shredded galaxies
 
 One of the side effects of better detection of blended sources is that we now have a lot more galaxy sub-populations, for example star-forming regions and spiral arms. In terms of deblending this is desirable: missing features with spectra that differ from the monotonic template created for a galaxy bulge results in poor deblending. In the long term we hope to train a neural network (NN) classifier to identify sub-regions of a shredded galaxy that should be associated with a single structure as opposed to individual sources. In the meantime it was decided to implement a heuristic that identifies a large fraction of the shredded galaxies so that we can pass reasonable information down to the user to help them distinguish shredded galaxies from blended objects.
@@ -83,6 +129,41 @@ One of the side effects of better detection of blended sources is that we now ha
 Luckily we can do this without much extra work from the significance maps that we already have. It was noticed while creating the detection algorithm that most sub-structure peaks that are part of shredded galaxies are all detected on the same footprint in the finest wavelet scale that we use for detection. Even stars in extremely crowded fields rarely overlap in the same wavelet scale, and virtually never have more than two overlapping peaks on the same scale. On the other hand, extended objects like galaxies that have substructure peaks nearly always have 3 or more peaks detected at the same wavelet scale. This results in a useful heuristic: any peak in a starlet footprint with 2 or more other peaks is associated with other peaks by the same `structure_id`. This heuristic does occasionally flag blends that by chance have very nearby galaxies, as well as stars and galaxies connected to bright, saturated stars. In the future (i.e., before this is turned on by default in the science pipelines) we plan to separately identify those peaks in pipe_tasks when the other blending flags are set by marking them as part of a structure with saturated pixels in the center.
 
 For larger galaxies this is still only a subset of the full galaxy. However, galaxies sufficiently large enough to be shredded beyond the reconstruction capabilities of this heuristic happens less than once per tract and likely will not be addressed until a future classifier is created.
+
+```{figure} images/structure_hist.png
+:name: structure_hist
+:width: 100%
+
+The distribution of peaks per structure in COSMOS 9813, patch 43. This only shows structures marked in the catalog, meaning that they have 3 or more peaks in them.
+```
+
+```{figure} images/shredded3_4.png
+:name: fig-shredded3_4
+:width: 100%
+
+Examples of shredded galaxies marked as a single structure, with their peak detections marked.
+```
+
+```{figure} images/shredded2_mask.png
+:name: fig-shredded2_mask
+:width: 100%
+
+Here we see a grand design spiral with many detections. These are rare and not perfect. Notice that only the top arm was associated with this galaxy. The left arm was split into multiple segments below the noise level so those will seep into the catalog undetcted.
+```
+
+```{figure} images/shredded1_mask.png
+:name: fig-shredded1_mask
+:width: 100%
+
+Here we see two or three sources that all merge on the same scale. This is also rare and while they are not all part of the same structure, marking them as part of a structure and not individual sources will prevent them from polluting the output catalog.
+```
+
+```{figure} images/saturated_structure.png
+:name: saturated_structure
+:width: 100%
+
+Here we see that sometimes objects near a bright star or galaxy that is saturated in most bands can also result in being marked as part of a structure. These are also rare but are the most common form of incorrectly marked extended structures in the catalog.
+```
 
 ### Detecting Footprints
 
@@ -96,6 +177,7 @@ The detection code created in this ticket is designed to be a drop-in replacemen
 
 This allows `MultiResolutionDetectionTask` to use the existing methods from `SourceDetectionTask` to generate footprints, clear their detection catalogs, and populate them with peaks that were detected in {ref}`merging-detections`. Any peaks that fall outside of a footprint are dropped, as they are assumed to be spurious detections that could not be associated with an above threshold region in the observed image.
 
+
 #### Footprints in the future
 
 Before DR1 we intend to implement a rigorous procedure for splitting up full patch blends so that we no longer have to skip blends above a certain size and/or density threshold. That algorithm is mostly left for its own technote, however we outline it here as it will hopefully replace the above footprint detection scheme in the near future.
@@ -104,7 +186,102 @@ Currently the science pipelines detect peaks and footprints, then initialize ble
 
 ## Analysis
 
-Analysis will be left for a future ticket. The technote thus far is designed to aid the reviewer in understanding the PRs for DM-52721, which adds the code to perform multi-band detection but does not add it to any pipelines in `drp_pipe`. While this ticket is being reviewed the analysis will be performed and this technote will be updated with the results in the same ticket that implements the new multi-band detection as the default in the science pipelines step 3 processing. Analysis of its performance on single band images, where it is likely to avoid many of the hacks needed to process DP2 in crowded fields, will also be added to this technote in an even later ticket.
+The new detection algorithm was tested on 2 tracts: 9813, a deep COSMOS tract with high SNR and 7517, a shallow wide field tract with low SNR.
+
+### Completeness
+
+The new algorithm is more complete than the legacy catalog in all regions except in the low SNR tract. We'll explain what we believe to be the cause of this discrepency.
+
+```{figure} images/completeness.png
+:name: completeness
+:width: 100%
+
+The completeness of tracts 9813 and 7517.
+```
+
+### 9813 COMSOS (High SNR)
+
+```{figure} images/galaxy.png
+:name: galaxy
+:width: 100%
+
+A small region of a COSMOS patch illustrating the difference between the legacy and new detection tasks. The legacy detections are the white x's, the white circles are peaks detected at both starlet scales, the cyan circles mark detections made in only the finest starlet scale, and the magenta circles mark sources found at only the low frequency starlet scale.
+```
+
+```{figure} images/galaxy_chi2.png
+:name: galaxy_chi2
+:width: 100%
+
+The $\chi^2$ image of the galaxy from {numref}`Figure %s <galaxy>`.
+```
+
+```{figure} images/galaxy_undetected.png
+:name: galaxy_undetected
+:width: 100%
+
+The galaxy from {numref}`Figure %s <galaxy>` with the legacy footprints subtracted. Notice the stray flux around the edges, likely due to local background subtraction in DynamicDetectionTask, and all of the undetected sources nearby.
+```
+
+```{figure} images/galaxy_new_footprint.png
+:name: galaxy_new_footprint
+:width: 100%
+
+The galaxy from {numref}`Figure %s <galaxy>` with the new footprints subtracted. Notice the lack of stray flux outside of the footprints, indicating that they are sufficiently large to use for deblending and measurement. The extra flux at the bottom and the marked sources are edge sources that are in the edge region. Unlike the legacy catalog, which marks edge peaks during measurement, the new algorithm does not detect peaks at all in the edge region to avoid polluting the catalog with spurious sources (and because starlet detection is not valid in the edge region).
+```
+
+### 7517 (Low SNR)
+
+When we look at tract 7517 we see why it had so much better completeness: the detection threshold is set incorrectly and is much too low (as was investigated in DM-56625). This results in a lot of spurious detections along with the extra detections from that catalog. We expect that if we run this on purely simulated images we'll see a much lower purity in the legacy catalog vs the new one.
+
+```{figure} images/noisy.png
+:name: noisy
+:width: 100%
+
+A small region of a tract 7517 patch illustrating the difference between the legacy and new detection tasks. The legacy detections are the white x's, the white circles are peaks detected at both starlet scales, the cyan circles mark detections made in only the finest starlet scale, and the magenta circles mark sources found at only the low frequency starlet scale. Notice the high number of spurious detections in the legacy catalog.
+```
+
+```{figure} images/noisy_chi2.png
+:name: noisy_chi2
+:width: 100%
+
+The $\chi^2$ image of the galaxy from {numref}`Figure %s <noisy>`. Here we see that if anything, the lower scale detections in the new catalog are also too sensitive and seem to potentially pick up spurious detections.
+```
+
+#### 5864 (Crowded)
+
+We have not yet run on a crowded field with injected sources, however the by-eye results from tract 5864 show that the new algorithm appears to improve our detections in those regions as well. An added benefit of crowded fields is that nearly all point sources are separate by below threshold regions for point sources in all of our images, so nearly all source are completely isolated in crowded fields, allowing us to build a very clean detection catalog modulo saturated regions.
+
+```{figure} images/crowded1.png
+:name: crowded1
+:width: 100%
+
+Multi-band image of a region in tract 5864, patch 43. The legacy detections are the white x's, the white circles are peaks detected at both starlet scales, the cyan circles mark detections made in only the finest starlet scale, and the magenta circles mark sources found at only the low frequency starlet scale.
+```
+
+```{figure} images/crowded1_chi2.png
+:name: crowded1_chi2
+:width: 100%
+
+The $\chi^2$ image of the galaxy from {numref}`Figure %s <crowded1>`.
+```
+
+```{figure} images/crowded2.png
+:name: crowded2
+:width: 100%
+
+Another sub-region of tract 5864, patch 43.
+```
+
+```{figure} images/crowded2_chi2.png
+:name: crowded2_chi2
+:width: 100%
+
+The $\chi^2$ image of the galaxy from {numref}`Figure %s <crowded2>`.
+```
+
+## Conclusion
+
+We have demonstrated that the new detection method has better completeness with likely better purity in tracts with different noise levels and source density. We have also tested on single patch of a crowded field (tract 5864) but have not yet run on a source injected image yet. A more thorough analysis is still needed, running on a source injected crowded field and taking a more detailed look at the output catalogs of the new detection task to see if e.g. we can eliminate spurious sources by imposing slightly stricter requirements on peak detection, like ensuring that source are detected in multiple bands or are above a higher detection threshold (needed to prevent culling y-band dropouts). That analysis will likely be done on simulated images, which will allow us to get better measurements of purity as well as completeness.
 
 ## References
 
